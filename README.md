@@ -16,6 +16,7 @@ git subtree pull --prefix=pdx_utilities ../pdx-utilities master --squash
 | Module | Contents |
 |--------|----------|
 | `scanner.py` | `split_line` (comment/string-aware line parser), `structural_balance` |
+| `script_parser.py` | `tokenize`, `parse` (script and GUI text to a node tree; strict by default, `strict=False` skips stray braces, `positions=True` adds character offsets), `RAW_BLOCKS` |
 | `paths.py` | `find_mod_root`, `find_mod_root_or_exit`, `vanilla_root`, `find_vanilla_repo` |
 | `fileio.py` | BOM-aware I/O: `read_text_preserve`, `read_with_bom`, `write_text_exact`, `write_with_bom`, `strip_bom_bytes` |
 | `constants.py` | `SCAN_TOPDIRS`, `CODE_EXTS`, `EXCLUDE_PARTS` |
