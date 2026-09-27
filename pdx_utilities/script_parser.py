@@ -242,6 +242,7 @@ def _parse_node_pattern(tokens, token, i, lookahead):
       word = value {          -> key = val_key { block }
       word word {             -> key val_key { block }
       word "str" {            -> key val_key { block }
+      word word = {           -> key mid_key = { block }
       word word = word {      -> key mid_key = val_key { block }
     """
     token_val = token['val']
@@ -276,6 +277,17 @@ def _parse_node_pattern(tokens, token, i, lookahead):
                                 'val': 'PENDING_BLOCK', 'type': 'node', '_token_start': token['start'],
                                 '_start': token['start']}
                         return node, t3_idx
+                    # word = word "str" on one line (coa = list "template_list")
+                    t4 = lookahead[3][1] if len(lookahead) >= 4 else None
+                    if (t2['type'] == 'word' and t3['type'] == 'str' and t3['line'] == t2['line']
+                            and not (t4 and t4['type'] == 'op' and t4['val'] not in ('{', '}'))):
+                        node = {'key': token_val, 'op': operator, 'val': f"{t2['val']} {t3['val']}",
+                                'type': 'node', '_start': token['start'], '_end': t3['end']}
+                        cm, offset = _get_inline_comment(tokens, t3_idx, t3['line'])
+                        if cm:
+                            node['_cm_inline'] = cm
+                            t3_idx += offset
+                        return node, t3_idx + 1
                 # word = value (no block)
                 node = {'key': token_val, 'op': operator, 'val': t2['val'], 'type': 'node',
                         '_start': token['start'], '_end': t2['end']}
@@ -302,6 +314,14 @@ def _parse_node_pattern(tokens, token, i, lookahead):
                 operator = t2['val']
                 if len(lookahead) >= 3:
                     t3_idx, t3 = lookahead[2]
+                    # word word = {   (scripted_effect name = { in event files)
+                    # Same line only: `$param$` on its own line before
+                    # `limit = {` is a standalone word, not a two-word key.
+                    if t3['val'] == '{' and t1['line'] == token['line']:
+                        node = {'key': token_val, 'op': operator, 'mid_key': mid_val,
+                                'val': 'PENDING_BLOCK', 'type': 'node',
+                                '_token_start': token['start'], '_start': token['start']}
+                        return node, t3_idx
                     if t3['type'] in ('word', 'str'):
                         if len(lookahead) >= 4:
                             t4_idx, t4 = lookahead[3]
@@ -311,11 +331,9 @@ def _parse_node_pattern(tokens, token, i, lookahead):
                                         'val_key': t3['val'], 'val': 'PENDING_BLOCK', 'type': 'node',
                                         '_token_start': token['start'], '_start': token['start']}
                                 return node, t4_idx
-                        # word word = value (no block) - treat as word word { pending
-                        node = {'key': token_val, 'op': None, 'val_key': mid_val,
-                                'val': 'PENDING_BLOCK', 'type': 'node', '_token_start': token['start'],
-                                '_start': token['start']}
-                        return node, t2_idx
+                        # word word = value (no block) is a standalone word
+                        # followed by a separate `key = value`; the caller's
+                        # standalone-word fallback handles the first word.
 
     return None, None
 
@@ -426,6 +444,15 @@ def parse(tokens, text, raw_blocks=RAW_BLOCKS, strict=True, positions=False, key
         if node:
             _attach_metadata(node, token, preceding_comments)
             preceding_comments = []
+            # Lookahead skips comments, so a comment inside the header
+            # (`template x # note` with `{` on the next line) would vanish.
+            # Keep each one as a standalone comment above the node.
+            if node['val'] == 'PENDING_BLOCK':
+                header_end = skip_to
+            else:
+                header_end = max(k for k in range(i, skip_to) if tokens[k]['type'] != 'comment')
+            current_list.extend(tokens[k] for k in range(i + 1, header_end)
+                                if tokens[k]['type'] == 'comment')
             current_list.append(node)
             i = skip_to
             continue
